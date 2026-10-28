@@ -150,6 +150,11 @@ def test_gated_residual_rmsnorm_dispatch(
             assert after == (before[0] + 1, before[1])
         else:
             assert after == (before[0], before[1] + 1)
+        # The support predicate answers for the row count: the gap rows are not
+        # served by backend="cake", while auto and cute run them.
+        assert not supports_gated_residual_rmsnorm(*gap_inputs, backend="cake")
+        assert supports_gated_residual_rmsnorm(*gap_inputs, backend="auto")
+        assert supports_gated_residual_rmsnorm(*gap_inputs, backend="cute")
         with pytest.raises(ValueError, match="backend must be one of"):
             gated_residual_rmsnorm(*inputs, backend="fast", **kwargs)
         monkeypatch.setattr(norm, "_HAS_CAKE_FUSED_NORM", False)

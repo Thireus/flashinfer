@@ -234,12 +234,16 @@ def _gated_residual_next_rmsnorm_backend(
     tensor_alpha: bool,
     has_post_weight: bool,
     rows: Optional[int] = None,
+    strict_rows: bool = False,
 ) -> Optional[str]:
     """The backend one call runs on: ``"cake"`` when the Cake package ships a
     program for the device, the call's variant and (with ``rows``) its row count
     (preferred under ``"auto"``; a row count in a gap of the package's windows
     falls to the CuTe DSL kernel), else ``"cute"`` when the CuTe DSL kernel
-    targets the device; ``None`` when the requested backend is not available."""
+    targets the device; ``None`` when the requested backend is not available.
+    An explicit ``"cake"`` ignores ``rows`` and reaches the package, which
+    raises for a row count in a gap, unless ``strict_rows`` (the support
+    predicates: they answer for the call's row count)."""
     if backend not in _GATED_RESIDUAL_NEXT_BACKENDS:
         raise ValueError(
             f"backend must be one of {_GATED_RESIDUAL_NEXT_BACKENDS}, got {backend!r}"
@@ -248,7 +252,7 @@ def _gated_residual_next_rmsnorm_backend(
         device,
         tensor_alpha=tensor_alpha,
         has_post_weight=has_post_weight,
-        rows=None if backend == "cake" else rows,
+        rows=rows if strict_rows or backend != "cake" else None,
     ):
         return "cake"
     if backend != "cake" and _cute_gated_residual_next_rmsnorm_available(device):
@@ -284,6 +288,7 @@ def _gated_residual_rmsnorm_backend(
     weight_before_norm: bool,
     enable_pdl: bool,
     rows: Optional[int] = None,
+    strict_rows: bool = False,
 ) -> Optional[str]:
     """The backend one call runs on: ``"cake"`` when the Cake package ships a
     program for the device, the call's variant (``weight`` applied before the
@@ -291,7 +296,9 @@ def _gated_residual_rmsnorm_backend(
     its row count (preferred under ``"auto"``; a row count in a gap of the
     package's windows falls to the CuTe DSL kernel), else ``"cute"`` when the
     CuTe DSL kernel targets the device; ``None`` when the requested backend is
-    not available."""
+    not available.  An explicit ``"cake"`` ignores ``rows`` and reaches the
+    package, which raises for a row count in a gap, unless ``strict_rows``
+    (the support predicates: they answer for the call's row count)."""
     if backend not in _GATED_RESIDUAL_NEXT_BACKENDS:
         raise ValueError(
             f"backend must be one of {_GATED_RESIDUAL_NEXT_BACKENDS}, got {backend!r}"
@@ -300,7 +307,7 @@ def _gated_residual_rmsnorm_backend(
         device,
         weight_before_norm=weight_before_norm,
         enable_pdl=enable_pdl,
-        rows=None if backend == "cake" else rows,
+        rows=rows if strict_rows or backend != "cake" else None,
     ):
         return "cake"
     if backend != "cake" and _cute_gated_residual_rmsnorm_available(device):
@@ -398,7 +405,10 @@ def supports_gated_residual_rmsnorm(
 ) -> bool:
     """Return whether tensors satisfy the SM100/SM103/SM107 fused-kernel contract
     and ``backend`` (``"auto"``: the Cake package or the CuTe DSL kernel) can run
-    the call on their device."""
+    the call on their device; with ``backend="cake"``, whether the Cake package
+    also ships a program whose window admits the call's row count (its windows
+    may leave declared gaps, which ``"auto"`` serves through the CuTe DSL kernel
+    and an explicit ``"cake"`` call rejects)."""
     return (
         _gated_residual_rmsnorm_tensors_ok(branch, residual, weight, alpha, beta)
         and _gated_residual_rmsnorm_backend(
@@ -406,6 +416,8 @@ def supports_gated_residual_rmsnorm(
             branch.device,
             weight_before_norm=weight is not None,
             enable_pdl=_resolved_pdl(branch.device, enable_pdl),
+            rows=branch.shape[0] or None,
+            strict_rows=True,
         )
         is not None
     )
@@ -472,7 +484,10 @@ def supports_gated_residual_next_rmsnorm(
 ) -> bool:
     """Return whether inputs satisfy the SM100/SM103/SM107 two-norm kernel contract
     and ``backend`` (``"auto"``: the Cake package or the CuTe DSL kernel) can run
-    the call on their device."""
+    the call on their device; with ``backend="cake"``, whether the Cake package
+    also ships a program whose window admits the call's row count (its windows
+    may leave declared gaps, which ``"auto"`` serves through the CuTe DSL kernel
+    and an explicit ``"cake"`` call rejects)."""
     tensors: tuple[torch.Tensor, ...] = (branch, residual, next_weight, beta)
     if isinstance(alpha, torch.Tensor):
         if (
@@ -514,6 +529,8 @@ def supports_gated_residual_next_rmsnorm(
             branch.device,
             tensor_alpha=isinstance(alpha, torch.Tensor),
             has_post_weight=post_weight is not None,
+            rows=branch.shape[0] or None,
+            strict_rows=True,
         )
         is not None
     )
